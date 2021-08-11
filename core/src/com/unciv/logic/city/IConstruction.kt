@@ -21,7 +21,8 @@ interface INonPerpetualConstruction : IConstruction, INamed, IHasUniques {
 
     fun getProductionCost(civInfo: CivilizationInfo): Int
     fun getStatBuyCost(cityInfo: CityInfo, stat: Stat): Int?
-    fun getRejectionReason(cityConstructions: CityConstructions): String
+    fun getHideInConstructionListReason(cityConstructions: CityConstructions): String = ""
+    fun getConstructionRequirement(construction: CityConstructions): HashMap<String, Boolean> = hashMapOf()
     
     fun getMatchingUniques(uniqueTemplate: String): Sequence<Unique> {
         return uniqueObjects.asSequence().filter { it.placeholderText == uniqueTemplate }
@@ -44,9 +45,8 @@ interface INonPerpetualConstruction : IConstruction, INamed, IHasUniques {
 
     /** Checks if the construction should be purchasable, not whether it can be bought with a stat at all */
     fun isPurchasable(cityConstructions: CityConstructions): Boolean {
-        val rejectionReason = getRejectionReason(cityConstructions)
-        return rejectionReason == ""
-                || rejectionReason == "Can only be purchased"
+        return getHideInConstructionListReason(cityConstructions) == ""
+                && (getConstructionRequirement(cityConstructions).isEmpty() || getConstructionRequirement(cityConstructions).none { !it.value })
     }
     
     fun canBePurchasedWithAnyStat(cityInfo: CityInfo): Boolean {

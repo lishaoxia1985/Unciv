@@ -122,26 +122,18 @@ class CityConstructionsTable(val cityScreen: CityScreen) : Table(CameraStageBase
 
         for (unit in city.getRuleset().units.values.filter { it.shouldBeDisplayed(cityConstructions) }) {
             val useStoredProduction = !cityConstructions.isBeingConstructedOrEnqueued(unit.name)
-            var buttonText = unit.name.tr() + cityConstructions.getTurnsToConstructionString(unit.name, useStoredProduction)
-            for ((resource, amount) in unit.getResourceRequirements()) {
-                if (amount == 1) buttonText += "\n" + "Consumes 1 [$resource]".tr()
-                else buttonText += "\n" + "Consumes [$amount] [$resource]".tr()
-            }
+            val buttonText = unit.name.tr() + cityConstructions.getTurnsToConstructionString(unit.name, useStoredProduction)
 
             constructionButtonDTOList.add(ConstructionButtonDTO(unit, buttonText,
-                    unit.getRejectionReason(cityConstructions)))
+                    unit.getConstructionRequirement(cityConstructions)))
         }
 
 
         for (building in city.getRuleset().buildings.values.filter { it.shouldBeDisplayed(cityConstructions) }) {
-            var buttonText = building.name.tr() + cityConstructions.getTurnsToConstructionString(building.name)
-            for ((resource, amount) in building.getResourceRequirements()) {
-                if (amount == 1) buttonText += "\n" + "Consumes 1 [$resource]".tr()
-                else buttonText += "\n" + "Consumes [$amount] [$resource]".tr()
-            }
+            val buttonText = building.name.tr() + cityConstructions.getTurnsToConstructionString(building.name)
 
             constructionButtonDTOList.add(ConstructionButtonDTO(building, buttonText,
-                    building.getRejectionReason(cityConstructions)))
+                    building.getConstructionRequirement(cityConstructions)))
         }
 
         for (specialConstruction in PerpetualConstruction.perpetualConstructionsMap.values
@@ -266,7 +258,7 @@ class CityConstructionsTable(val cityScreen: CityScreen) : Table(CameraStageBase
                 Color.BROWN.cpy().lerp(Color.WHITE, 0.5f), Color.WHITE)
     }
 
-    class ConstructionButtonDTO(val construction: IConstruction, val buttonText: String, val rejectionReason: String = "")
+    class ConstructionButtonDTO(val construction: IConstruction, val buttonText: String, val constructionRequirement: HashMap<String, Boolean> = hashMapOf())
 
     private fun getConstructionButton(constructionButtonDTO: ConstructionButtonDTO): Table {
         val construction = constructionButtonDTO.construction
@@ -283,21 +275,26 @@ class CityConstructionsTable(val cityScreen: CityScreen) : Table(CameraStageBase
         pickConstructionButton.add(getProgressBar(construction.name)).padRight(5f)
         pickConstructionButton.add(ImageGetter.getConstructionImage(construction.name).surroundWithCircle(40f)).padRight(10f)
         pickConstructionButton.add(constructionButtonDTO.buttonText.toLabel()).expandX().fillX()
-
+        for ((resource, amount) in construction.getResourceRequirements()) {
+            if (cityScreen.city.civInfo.getCivResourcesByName()[resource]!! < amount)
+                pickConstructionButton.add(amount.toString().toLabel(Color.RED))
+            else pickConstructionButton.add(amount.toString().toLabel(Color.GREEN))
+            pickConstructionButton.add(ImageGetter.getResourceImage(resource,30f)).pad(5f)
+        }
         if (!cannotAddConstructionToQueue(construction, cityScreen.city, cityScreen.city.cityConstructions)) {
             val addToQueueButton = ImageGetter.getImage("OtherIcons/New").apply { color = Color.BLACK }.surroundWithCircle(40f)
             addToQueueButton.onClick(getConstructionSound(construction)) {
                 addConstructionToQueue(construction, cityScreen.city.cityConstructions)
             }
-            pickConstructionButton.add(addToQueueButton)
+            pickConstructionButton.add(addToQueueButton).width(50f)
         }
+        else pickConstructionButton.add().width(50f)
         pickConstructionButton.row()
 
-        // no rejection reason means we can build it!
-        if (constructionButtonDTO.rejectionReason != "") {
+        // That all the Construction Requirement are true means we can build it!
+        if (constructionButtonDTO.constructionRequirement.any { !it.value }) {
             pickConstructionButton.color = Color.GRAY
-            pickConstructionButton.add(constructionButtonDTO.rejectionReason.toLabel(Color.RED).apply { wrap = true })
-                    .colspan(pickConstructionButton.columns).fillX().left().padTop(2f)
+            pickConstructionButton.background = ImageGetter.getBackground(Color.BROWN)
         }
         pickConstructionButton.onClick {
             cityScreen.selectedConstruction = construction
