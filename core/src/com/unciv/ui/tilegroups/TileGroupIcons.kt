@@ -20,6 +20,7 @@ class TileGroupIcons(val tileGroup: TileGroup) {
 
     var civilianUnitIcon: UnitGroup? = null
     var militaryUnitIcon: UnitGroup? = null
+    var aircraftUnitIcon: IconCircleGroup? = null
 
     fun update(showResourcesAndImprovements: Boolean, showTileYields: Boolean, tileIsViewable: Boolean, showMilitaryUnit: Boolean, viewingCiv: CivilizationInfo?) {
         updateResourceIcon(showResourcesAndImprovements)
@@ -27,11 +28,7 @@ class TileGroupIcons(val tileGroup: TileGroup) {
         updateStartingLocationIcon(showResourcesAndImprovements)
 
         if (viewingCiv != null) updateYieldIcon(showTileYields, viewingCiv)
-
-        civilianUnitIcon = newUnitIcon(tileGroup.tileInfo.civilianUnit, civilianUnitIcon,
-                tileIsViewable, -20f, viewingCiv)
-        militaryUnitIcon = newUnitIcon(tileGroup.tileInfo.militaryUnit, militaryUnitIcon,
-                tileIsViewable && showMilitaryUnit, 20f, viewingCiv)
+        updateUnitIcon(tileIsViewable, showMilitaryUnit, viewingCiv)
     }
 
     fun addPopulationIcon(icon: Image = ImageGetter.getStatIcon("Population")
@@ -51,58 +48,54 @@ class TileGroupIcons(val tileGroup: TileGroup) {
         populationIcon = null
     }
 
-
-    private fun newUnitIcon(unit: MapUnit?, oldUnitGroup: UnitGroup?, isViewable: Boolean, yFromCenter: Float, viewingCiv: CivilizationInfo?): UnitGroup? {
-        var newImage: UnitGroup? = null
-        // The unit can change within one update - for instance, when attacking, the attacker replaces the defender!
-        oldUnitGroup?.unitBaseImage?.remove()
-        oldUnitGroup?.remove()
-
-        if (unit != null && isViewable) { // Tile is visible
-            newImage = UnitGroup(unit, 25f)
-            if (UncivGame.Current.settings.continuousRendering && oldUnitGroup?.blackSpinningCircle != null) {
-                newImage.blackSpinningCircle = ImageGetter.getCircle()
-                        .apply { rotation = oldUnitGroup.blackSpinningCircle!!.rotation }
-            }
-            tileGroup.unitLayerGroup.addActor(newImage)
-            newImage.center(tileGroup)
-            newImage.y += yFromCenter
-
-            // We "steal" the unit image so that all backgrounds are rendered next to each other
-            // to save texture swapping and improve framerate
-            tileGroup.unitImageLayerGroup.addActor(newImage.unitBaseImage)
-            newImage.unitBaseImage.center(tileGroup)
-            newImage.unitBaseImage.y += yFromCenter
-
-            // Display number of carried air units
-            if (unit.getTile().airUnits.any { unit.isTransportTypeOf(it) } && !unit.getTile().isCityCenter()) {
-                val holder = Table()
-                val secondaryColor = unit.civInfo.nation.getInnerColor()
-                val airUnitTable = Table().apply { defaults().pad(3f) }
-                airUnitTable.background = ImageGetter.getBackground(unit.civInfo.nation.getOuterColor())
-                val aircraftImage = ImageGetter.getImage("OtherIcons/Aircraft")
-                aircraftImage.color = secondaryColor
-                airUnitTable.add(aircraftImage).size(10f)
-                airUnitTable.add(unit.getTile().airUnits.size.toString().toLabel(secondaryColor, 10))
-                val surroundedWithCircle = airUnitTable.surroundWithCircle(20f,false, unit.civInfo.nation.getOuterColor())
-                surroundedWithCircle.circle.width *= 1.5f
-                surroundedWithCircle.circle.centerX(surroundedWithCircle)
-                holder.add(surroundedWithCircle).row()
-                holder.setOrigin(Align.center)
-                holder.center(tileGroup)
-                newImage.addActor(holder)
-            }
-
-            // Instead of fading out the entire unit with its background, we just fade out its central icon,
-            // that way it remains much more visible on the map
-            if (!unit.isIdle() && unit.civInfo == viewingCiv) {
-                newImage.unitBaseImage.color.a = 0.5f
-                newImage.actionGroup?.color?.a = 0.5f
-            }
+    private fun updateUnitIcon(tileIsViewable: Boolean, showMilitaryUnit: Boolean, viewingCiv: CivilizationInfo?) {
+        civilianUnitIcon?.remove()
+        militaryUnitIcon?.remove()
+        aircraftUnitIcon?.remove()
+        if (tileGroup.tileInfo.civilianUnit != null && tileIsViewable) {
+            civilianUnitIcon = unitIcon(tileGroup.tileInfo.civilianUnit!!, viewingCiv)
+            tileGroup.unitLayerGroup.addActor(civilianUnitIcon)
         }
-        return newImage
+        if (tileGroup.tileInfo.militaryUnit != null && tileIsViewable && showMilitaryUnit) {
+            militaryUnitIcon = unitIcon(tileGroup.tileInfo.militaryUnit!!, viewingCiv)
+            tileGroup.unitLayerGroup.addActor(militaryUnitIcon)
+        }
+        if (tileGroup.tileInfo.airUnits.isNotEmpty()) {
+            aircraftUnitIcon = aircraftIcon(viewingCiv)
+            tileGroup.unitLayerGroup.addActor(aircraftUnitIcon)
+        }
     }
 
+    private fun unitIcon(unit: MapUnit, viewingCiv: CivilizationInfo?): UnitGroup {
+        return UnitGroup(unit, 25f).apply {
+            if (unit.baseUnit.isMilitary()) setPosition(15f,35f)
+            else setPosition(15f,-5f)
+            if (unit.baseUnit.isMilitary() && tileGroup.tileInfo.airUnits.isNotEmpty()) x -= 15
+            if (!unit.isIdle() && unit.civInfo == viewingCiv) unitBaseImage.color.a = 0.5f
+        }
+    }
+
+    private fun aircraftIcon(viewingCiv: CivilizationInfo?): IconCircleGroup {
+        val aircraftTable = Table()
+        val militaryUnit = tileGroup.tileInfo.militaryUnit
+        val ownedNation = if (tileGroup.tileInfo.isCityCenter()) tileGroup.tileInfo.getOwner()!!.nation else militaryUnit!!.civInfo.nation
+        if (tileGroup.tileInfo.isCityCenter()) {
+            aircraftTable.add(ImageGetter.getImage("OtherIcons/Aircraft")
+                    .apply { color = ownedNation.getInnerColor() }).size(12f).row()
+            aircraftTable.add("${tileGroup.tileInfo.airUnits.size}".toLabel(ownedNation.getInnerColor(), 10))
+        }
+        else { // when the militaryUnit is not in CityCenter it should be an aircraft carrier
+            val unitCapacity = 2 + militaryUnit!!.getUniques().count { it.text == "Can carry 1 extra air unit" }
+            aircraftTable.add("${tileGroup.tileInfo.airUnits.size}/$unitCapacity".toLabel(ownedNation.getInnerColor(),10))
+        }
+        if (tileGroup.tileInfo.airUnits.none { it.canAttack() } && ownedNation == viewingCiv?.nation)
+            aircraftTable.color.a = 0.5f
+        return aircraftTable.surroundWithCircle(25f,false).apply {
+            circle.color = ownedNation.getOuterColor()
+            setPosition(15f,35f)
+            if (militaryUnit!=null) x += 15f
+        }
+    }
 
     private fun updateImprovementIcon(showResourcesAndImprovements: Boolean) {
         improvementIcon?.remove()
